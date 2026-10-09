@@ -459,21 +459,6 @@ static inline bool CheckValidFacesIndices(aiFace *faces, unsigned nFaces, unsign
 #endif // ASSIMP_BUILD_DEBUG
 
 template <typename T>
-aiColor4D *GetVertexColorsForType(Ref<Accessor> input, std::vector<unsigned int> *vertexRemappingTable) {
-    constexpr float max = std::numeric_limits<T>::max();
-    aiColor4t<T> *colors;
-    size_t count = input->ExtractData(colors, vertexRemappingTable);
-    auto output = new aiColor4D[count];
-    for (size_t i = 0; i < count; i++) {
-        output[i] = aiColor4D(
-                colors[i].r / max, colors[i].g / max,
-                colors[i].b / max, colors[i].a / max);
-    }
-    delete[] colors;
-    return output;
-}
-
-template <typename T>
 aiQuaternion *GetQuaternionsForType(Ref<Accessor> input) {
     constexpr float max = std::numeric_limits<T>::max();
     std::array<T, 4> *quats;
@@ -617,14 +602,14 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
             }
 
             if (!attr.position.empty() && attr.position[0]) {
-                aim->mNumVertices = static_cast<unsigned int>(attr.position[0]->ExtractData(aim->mVertices, vertexRemappingTable));
+                aim->mNumVertices = static_cast<unsigned int>(attr.position[0]->ExtractConvertedData<aiVector3D, ai_real>(aim->mVertices, vertexRemappingTable));
             }
 
             if (!attr.normal.empty() && attr.normal[0]) {
                     if (attr.normal[0]->count != numAllVertices) {
                     DefaultLogger::get()->warn("Normal count in mesh \"", mesh.name, "\" does not match the vertex count, normals ignored.");
                 } else {
-                    attr.normal[0]->ExtractData(aim->mNormals, vertexRemappingTable);
+                    attr.normal[0]->ExtractConvertedData<aiVector3D, ai_real>(aim->mNormals, vertexRemappingTable);
 
                     // only extract tangents if normals are present
                     if (!attr.tangent.empty() && attr.tangent[0]) {
@@ -634,7 +619,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                             // generate bitangents from normals and tangents according to spec
                             Tangent *tangents = nullptr;
 
-                            attr.tangent[0]->ExtractData(tangents, vertexRemappingTable);
+                            attr.tangent[0]->ExtractConvertedData<Tangent, ai_real>(tangents, vertexRemappingTable);
 
                             aim->mTangents = new aiVector3D[aim->mNumVertices];
                             aim->mBitangents = new aiVector3D[aim->mNumVertices];
@@ -657,14 +642,11 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                     continue;
                 }
 
-                auto componentType = attr.color[c]->componentType;
-                if (componentType == glTF2::ComponentType_FLOAT) {
-                    attr.color[c]->ExtractData(aim->mColors[c], vertexRemappingTable);
-                } else {
-                    if (componentType == glTF2::ComponentType_UNSIGNED_BYTE) {
-                        aim->mColors[c] = GetVertexColorsForType<unsigned char>(attr.color[c], vertexRemappingTable);
-                    } else if (componentType == glTF2::ComponentType_UNSIGNED_SHORT) {
-                        aim->mColors[c] = GetVertexColorsForType<unsigned short>(attr.color[c], vertexRemappingTable);
+                attr.color[c]->ExtractConvertedData<aiColor4D, ai_real>(aim->mColors[c], vertexRemappingTable);
+
+                if (attr.color[c]->GetNumComponents() == 3) {
+                    for (unsigned int i = 0; i < aim->mNumVertices; ++i) {
+                        aim->mColors[c][i].a = 1.0f;
                     }
                 }
             }
@@ -680,7 +662,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                     continue;
                 }
 
-                attr.texcoord[tc]->ExtractData(aim->mTextureCoords[tc], vertexRemappingTable);
+                attr.texcoord[tc]->ExtractConvertedData<aiVector3D, ai_real>(aim->mTextureCoords[tc], vertexRemappingTable);
                 aim->mNumUVComponents[tc] = attr.texcoord[tc]->GetNumComponents();
 
                 aiVector3D *values = aim->mTextureCoords[tc];
@@ -709,7 +691,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                             ASSIMP_LOG_WARN("Positions of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
                         } else {
                             aiVector3D *positionDiff = nullptr;
-                            target.position[0]->ExtractData(positionDiff, vertexRemappingTable);
+                            target.position[0]->ExtractConvertedData<aiVector3D, ai_real>(positionDiff, vertexRemappingTable);
                             for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
                                 aiAnimMesh.mVertices[vertexId] += positionDiff[vertexId];
                             }
@@ -721,7 +703,7 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                             ASSIMP_LOG_WARN("Normals of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
                         } else {
                             aiVector3D *normalDiff = nullptr;
-                            target.normal[0]->ExtractData(normalDiff, vertexRemappingTable);
+                            target.normal[0]->ExtractConvertedData<aiVector3D, ai_real>(normalDiff, vertexRemappingTable);
                             for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; vertexId++) {
                                 aiAnimMesh.mNormals[vertexId] += normalDiff[vertexId];
                             }
@@ -736,10 +718,10 @@ void glTF2Importer::ImportMeshes(glTF2::Asset &r) {
                             ASSIMP_LOG_WARN("Tangents of target ", i, " in mesh \"", mesh.name, "\" does not match the vertex count");
                         } else {
                             Tangent *tangent = nullptr;
-                            attr.tangent[0]->ExtractData(tangent, vertexRemappingTable);
+                            attr.tangent[0]->ExtractConvertedData<Tangent, ai_real>(tangent, vertexRemappingTable);
 
                             aiVector3D *tangentDiff = nullptr;
-                            target.tangent[0]->ExtractData(tangentDiff, vertexRemappingTable);
+                            target.tangent[0]->ExtractConvertedData<aiVector3D, ai_real>(tangentDiff, vertexRemappingTable);
 
                             for (unsigned int vertexId = 0; vertexId < aim->mNumVertices; ++vertexId) {
                                 tangent[vertexId].xyz += tangentDiff[vertexId];
@@ -1117,7 +1099,7 @@ static void BuildVertexWeightMapping(Mesh::Primitive &primitive, std::vector<std
     };
     Weights **weights = new Weights*[attr.weight.size()];
     for (size_t w = 0; w < attr.weight.size(); ++w) {
-        num_vertices = attr.weight[w]->ExtractData(weights[w], vertexRemappingTablePtr);
+        num_vertices = attr.weight[w]->ExtractConvertedData<Weights, float>(weights[w], vertexRemappingTablePtr);
     }
 
     struct Indices8 {
